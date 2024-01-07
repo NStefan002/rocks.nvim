@@ -137,19 +137,42 @@ local function guard_set_up_luarocks_dependency_missing(dep)
     return false
 end
 
+--- @alias OperatingSystem
+--- | "windows"
+--- | "mac"
+--- | "linux"
+
+--- Gets the current operating system.
+--- @return OperatingSystem
+local function get_os_info()
+    local os = vim.loop.os_uname().sysname:lower()
+
+    if os:find("windows_nt") then
+        return "windows"
+    elseif os == "darwin" then
+        return "mac"
+    elseif os == "linux" then
+        return "linux"
+    end
+
+    error("[rocks.nvim]: Unable to determine the currently active operating system.")
+end
+
 --- Sets up luarocks for use with rocks.nvim
 ---@param install_path string
 ---@return boolean success
 local function set_up_luarocks(install_path)
-    -- TODO: Check running OS here
+    local os = get_os_info()
+
     if guard_set_up_luarocks_dependency_missing("git") then
         return false
     end
-    if guard_set_up_luarocks_dependency_missing("sh") then
-        -- TODO: Add support for Windows?
+
+    if os ~= "windows" and guard_set_up_luarocks_dependency_missing("sh") then
         return false
     end
-    if guard_set_up_luarocks_dependency_missing("make") then
+
+    if os ~= "windows" and guard_set_up_luarocks_dependency_missing("make") then
         return false
     end
 
@@ -186,33 +209,49 @@ local function set_up_luarocks(install_path)
         return false
     end
 
-    sc = vim.system({
-        "sh",
-        "configure",
-        "--prefix=" .. install_path,
-        "--lua-version=5.1",
-        "--force-config",
-    }, {
-        cwd = tempdir,
-    }):wait()
+    if os == "windows" then
+        sc = vim.system({
+            "call",
+            "install.bat",
+            "/P " .. install_path,
+            "/LV 5.1",
+            "/FORCECONFIG",
+            "/NOADMIN",
+            "/Q",
+        }, {
+            cwd = tempdir,
+        }):wait()
+    else
+        sc = vim.system({
+            "sh",
+            "configure",
+            "--prefix=" .. install_path,
+            "--lua-version=5.1",
+            "--force-config",
+        }, {
+            cwd = tempdir,
+        }):wait()
+    end
 
     if sc.code ~= 0 then
         vim.notify("Configuring luarocks failed: " .. sc.stderr, vim.log.levels.ERROR)
         return false
     end
 
-    vim.notify("Installing luarocks...")
+    if os ~= "windows" then
+        vim.notify("Installing luarocks...")
 
-    sc = vim.system({
-        "make",
-        "install",
-    }, {
-        cwd = tempdir,
-    }):wait()
+        sc = vim.system({
+            "make",
+            "install",
+        }, {
+            cwd = tempdir,
+        }):wait()
 
-    if sc.code ~= 0 then
-        vim.notify("Installing luarocks failed: " .. sc.stderr, vim.log.levels.ERROR)
-        return false
+        if sc.code ~= 0 then
+            vim.notify("Installing luarocks failed: " .. sc.stderr, vim.log.levels.ERROR)
+            return false
+        end
     end
 
     return true
